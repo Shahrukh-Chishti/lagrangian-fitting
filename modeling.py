@@ -2,6 +2,61 @@ import pandas,numpy
 import plotly.graph_objects as go
 import plotly.offline as py
 from plotly.subplots import make_subplots
+import torch
+device = 'cpu'
+
+def controlPath(time):
+    c = pandas.Series(time,index=time)
+    cdot = pandas.Series(1,index=time)
+    cddot = pandas.Series(0,index=time)
+    return c,cdot,cddot
+
+def logLoss(x,epsilon=e-10):
+    return torch.log(x+epsilon)**2
+
+def lossFunction(ND,ELC,ELD):
+    loss = logLoss(ND)*logLoss(ELC)*((ELD+epsilon)/(ELC+epsilon))
+    return loss
+
+
+def parametrization(power_space):
+    parameters = []
+    for power in power_space:
+        c = torch.randn(1, requires_grad=True, dtype=torch.float, device=device)
+        power['c'] = c
+        parameters.append(c)
+    return power_space,parameters
+
+def trainPolynomial(power_space,q,qdot,qddot,iterations=200):
+    time = q.index
+    c,cdot,cddot = controlPath(time)
+    power_space,parameters = parametrization(power_space)
+    ELD = eulerLagrangian(power_space,q,qdot,qddot)
+    ELC = eulerLagrangian(power_space,c,cdot,cddot)
+    ND = regularizer(power_space,q,qdot,qddot)
+    loss = lossFunction(ND,ELC,ELD)
+    for iteration in range(iterations):
+        loss.backward()
+
+
+#def regularizer(power_space,q,qdot,qddot):
+
+def EulerLagrangian(power_space,q,qdot,qddot,time):
+    parameters = []
+    ELD = []
+    for t in time:
+        EL = []
+        for power in power_space:
+            alpha,beta,gamma,c = power
+            parameters.append(c)
+            el = c*(q[t]**alpha)*(qdot[t]**beta)*(qddot[t]*gamma)
+            el *= beta*gamma/(qdot[t]*t) + (beta-1)*alpha/q[t] + beta*(beta-1)*qddot[t]/(qdot[t]**2)
+            EL.append(el)
+        ELD.append(torch.sum(EL))
+
+    ELD = torch.sum(ELD)
+    return EL,parameters
+
 
 ## plotting methods
 
@@ -75,6 +130,7 @@ def normalisation(series):
     return series
 
 def truncateTrend(series,trend=+1):
+    series = series.copy()
     series.loc[series*trend < 0] = 0
     return series
 
