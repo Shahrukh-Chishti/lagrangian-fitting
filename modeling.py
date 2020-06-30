@@ -3,7 +3,11 @@ import plotly.graph_objects as go
 import plotly.offline as py
 from plotly.subplots import make_subplots
 import torch
+from torch.autograd import Variable
+
 device = 'cpu'
+torch.manual_seed(42)
+epsilon=1e-10
 
 def controlPath(time):
     c = pandas.Series(time,index=time)
@@ -11,51 +15,66 @@ def controlPath(time):
     cddot = pandas.Series(0,index=time)
     return c,cdot,cddot
 
-def logLoss(x,epsilon=e-10):
-    return torch.log(x+epsilon)**2
+def logLoss(x):
+    return 1+torch.log(x+epsilon)**2
 
 def lossFunction(ND,ELC,ELD):
     loss = logLoss(ND)*logLoss(ELC)*((ELD+epsilon)/(ELC+epsilon))
     return loss
 
-
 def parametrization(power_space):
     parameters = []
     for power in power_space:
-        c = torch.randn(1, requires_grad=True, dtype=torch.float, device=device)
+        c = Variable(torch.rand(1),requires_grad=True)
         power['c'] = c
         parameters.append(c)
     return power_space,parameters
 
-def trainPolynomial(power_space,q,qdot,qddot,iterations=200):
+def trainPolynomial(power_space,q,qdot,qddot,lr=.00001,iterations=200):
     time = q.index
     c,cdot,cddot = controlPath(time)
     power_space,parameters = parametrization(power_space)
-    ELD = eulerLagrangian(power_space,q,qdot,qddot)
-    ELC = eulerLagrangian(power_space,c,cdot,cddot)
-    ND = regularizer(power_space,q,qdot,qddot)
-    loss = lossFunction(ND,ELC,ELD)
+    optimizer = torch.optim.SGD(parameters,lr=lr)
     for iteration in range(iterations):
+        ELC = EulerLagrangian(power_space,c,cdot,cddot,time)
+        ELD = EulerLagrangian(power_space,q,qdot,qddot,time)
+        ND = regularizer(power_space,q,qdot,qddot,time)
+        loss = lossFunction(ND,ELC,ELD)
+        print(loss)
         loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
 
+    return power_space
 
-#def regularizer(power_space,q,qdot,qddot):
+def regularizer(power_space,q,qdot,qddot,time):
+    time_integral = Variable(torch.FloatTensor([0]))
+    for t in time:
+        EL = Variable(torch.FloatTensor([0]))
+        for power in power_space:
+            alpha,beta,gamma,c = power.values()
+            el = c*(q[t]**alpha)*(qdot[t]**beta)*(t**gamma)
+            A = el*beta
+            A *= gamma/(qdot[t]*t) + alpha/q[t] + (beta-1)*qddot[t]/(qdot[t]**2)
+            B = el*alpha/q[t]
+            EL += torch.pow(A,2) + torch.pow(B,2)
+        time_integral += EL
+
+    return time_integral
 
 def EulerLagrangian(power_space,q,qdot,qddot,time):
-    parameters = []
-    ELD = []
+    time_integral = Variable(torch.FloatTensor([0]))
     for t in time:
-        EL = []
+        EL = Variable(torch.FloatTensor([0]))
         for power in power_space:
-            alpha,beta,gamma,c = power
-            parameters.append(c)
-            el = c*(q[t]**alpha)*(qdot[t]**beta)*(qddot[t]*gamma)
+            alpha,beta,gamma,c = power.values()
+            el = (q[t]**alpha)*(qdot[t]**beta)*(t**gamma)
             el *= beta*gamma/(qdot[t]*t) + (beta-1)*alpha/q[t] + beta*(beta-1)*qddot[t]/(qdot[t]**2)
-            EL.append(el)
-        ELD.append(torch.sum(EL))
+            el = c*el
+            EL += el
+        time_integral += torch.pow(EL,2)
 
-    ELD = torch.sum(ELD)
-    return EL,parameters
+    return time_integral
 
 
 ## plotting methods
