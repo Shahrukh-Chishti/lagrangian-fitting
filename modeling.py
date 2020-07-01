@@ -9,6 +9,8 @@ device = 'cpu'
 torch.manual_seed(42)
 epsilon=1e-10
 
+# Lagrangian Fitting
+
 def controlPath(time):
     c = pandas.Series(time,index=time)
     cdot = pandas.Series(1,index=time)
@@ -30,14 +32,28 @@ def parametrization(power_space):
         parameters.append(c)
     return power_space,parameters
 
+def precomputeCoefficients(power_space,q,qdot,qddot,time):
+    P = []
+    for t in time:
+        EL = Variable(torch.FloatTensor([0]*len(power_space)))
+        for index,power in enumerate(power_space):
+            alpha,beta,gamma,c = power.values()
+            el = (q[t]**alpha)*(qdot[t]**beta)*(t**gamma)
+            el *= beta*gamma/(qdot[t]*t) + (beta-1)*alpha/q[t] + beta*(beta-1)*qddot[t]/(qdot[t]**2)
+            EL[index] = el
+        P.append(EL)
+    return P
+
 def trainPolynomial(power_space,q,qdot,qddot,lr=.00001,iterations=200):
     time = q.index
     c,cdot,cddot = controlPath(time)
     power_space,parameters = parametrization(power_space)
+    PD = precomputeCoefficients(power_space,q,qdot,qddot,time)
+    PC = precomputeCoefficients(power_space,c,cdot,cddot,time)
     optimizer = torch.optim.SGD(parameters,lr=lr)
     for iteration in range(iterations):
-        ELC = EulerLagrangian(power_space,c,cdot,cddot,time)
-        ELD = EulerLagrangian(power_space,q,qdot,qddot,time)
+        ELC = timeIntegral(parameters,PC)
+        ELC = timeIntegral(parameters,PC)
         ND = regularizer(power_space,q,qdot,qddot,time)
         loss = lossFunction(ND,ELC,ELD)
         print(loss)
@@ -45,7 +61,10 @@ def trainPolynomial(power_space,q,qdot,qddot,lr=.00001,iterations=200):
         optimizer.step()
         optimizer.zero_grad()
 
-    return power_space
+    coefficients = [mono['c'].data.numpy()[0] for mono in power_space]
+    return power_space,coefficients
+
+# Lagrangian analysis
 
 def regularizer(power_space,q,qdot,qddot,time):
     time_integral = Variable(torch.FloatTensor([0]))
@@ -62,12 +81,19 @@ def regularizer(power_space,q,qdot,qddot,time):
 
     return time_integral
 
-def EulerLagrangian(power_space,q,qdot,qddot,time):
+def timeIntegral(coefficients,P):
+    coefficients = torch.cat(coefficients)
     time_integral = Variable(torch.FloatTensor([0]))
+    for p in P:
+        el = coefficients*p
+        time_integral += torch.pow(EL,2)
+    return timeIntegral
+
+def EulerLagrangian(power_space,q,qdot,qddot,time):
     for t in time:
         EL = Variable(torch.FloatTensor([0]))
         for power in power_space:
-            alpha,beta,gamma,c = power.values()
+            alpha,beta,gamma,c,P = power.values()
             el = (q[t]**alpha)*(qdot[t]**beta)*(t**gamma)
             el *= beta*gamma/(qdot[t]*t) + (beta-1)*alpha/q[t] + beta*(beta-1)*qddot[t]/(qdot[t]**2)
             el = c*el
@@ -76,6 +102,23 @@ def EulerLagrangian(power_space,q,qdot,qddot,time):
 
     return time_integral
 
+def polynomialLagrangian(power_space,q,qdot,t):
+    L = 0
+    for mono in power_space:
+        L += mono['c']*(q**mono['alpha'])*(qdot**mono['beta'])*(t**mono['gamma'])
+    return L
+
+def evolutionLagrangian(power_space,q,qdot,time):
+    lagMap = []
+    for t in time:
+        x_axis = []
+        for position in q:
+            y_axis = []
+            for velocity in qdot:
+                y_axis.append(polynomialLagrangian(power_space,position,velocity,t))
+            x_axis.append(y_axis)
+        lagMap.append(numpy.asarray(x_axis))
+    return lagMap
 
 ## plotting methods
 
