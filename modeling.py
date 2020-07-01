@@ -18,7 +18,7 @@ def controlPath(time):
     return c,cdot,cddot
 
 def logLoss(x):
-    return 1+torch.log(x+epsilon)**2
+    return 1+torch.log((x+epsilon)**2)
 
 def lossFunction(ND,ELC,ELD):
     loss = logLoss(ND)*logLoss(ELC)*((ELD+epsilon)/(ELC+epsilon))
@@ -32,18 +32,6 @@ def parametrization(power_space):
         parameters.append(c)
     return power_space,parameters
 
-def precomputeCoefficients(power_space,q,qdot,qddot,time):
-    P = []
-    for t in time:
-        EL = Variable(torch.FloatTensor([0]*len(power_space)))
-        for index,power in enumerate(power_space):
-            alpha,beta,gamma,c = power.values()
-            el = (q[t]**alpha)*(qdot[t]**beta)*(t**gamma)
-            el *= beta*gamma/(qdot[t]*t) + (beta-1)*alpha/q[t] + beta*(beta-1)*qddot[t]/(qdot[t]**2)
-            EL[index] = el
-        P.append(EL)
-    return P
-
 def trainPolynomial(power_space,q,qdot,qddot,lr=.00001,iterations=200):
     time = q.index
     c,cdot,cddot = controlPath(time)
@@ -51,12 +39,13 @@ def trainPolynomial(power_space,q,qdot,qddot,lr=.00001,iterations=200):
     PD = precomputeCoefficients(power_space,q,qdot,qddot,time)
     PC = precomputeCoefficients(power_space,c,cdot,cddot,time)
     optimizer = torch.optim.SGD(parameters,lr=lr)
+    parameters = torch.cat(parameters)
     for iteration in range(iterations):
         ELC = timeIntegral(parameters,PC)
-        ELC = timeIntegral(parameters,PC)
+        ELD = timeIntegral(parameters,PD)
         ND = regularizer(power_space,q,qdot,qddot,time)
         loss = lossFunction(ND,ELC,ELD)
-        print(loss)
+        print(loss.data.numpy())
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
@@ -65,6 +54,19 @@ def trainPolynomial(power_space,q,qdot,qddot,lr=.00001,iterations=200):
     return power_space,coefficients
 
 # Lagrangian analysis
+
+def precomputeCoefficients(power_space,q,qdot,qddot,time):
+    P = []
+    for t in time:
+        EL = []
+        for power in power_space:
+            alpha,beta,gamma,c = power.values()
+            el = (q[t]**alpha)*(qdot[t]**beta)*(t**gamma)
+            el *= beta*gamma/(qdot[t]*t) + (beta-1)*alpha/q[t] + beta*(beta-1)*qddot[t]/(qdot[t]**2)
+            EL.append(el)
+        EL = Variable(torch.FloatTensor(EL))
+        P.append(EL)
+    return P
 
 def regularizer(power_space,q,qdot,qddot,time):
     time_integral = Variable(torch.FloatTensor([0]))
@@ -82,12 +84,12 @@ def regularizer(power_space,q,qdot,qddot,time):
     return time_integral
 
 def timeIntegral(coefficients,P):
-    coefficients = torch.cat(coefficients)
-    time_integral = Variable(torch.FloatTensor([0]))
+    time_integral = 0#+Variable(torch.FloatTensor([0]))
     for p in P:
         el = coefficients*p
-        time_integral += torch.pow(EL,2)
-    return timeIntegral
+        el = torch.sum(el)
+        time_integral += torch.pow(el,2)
+    return time_integral
 
 def EulerLagrangian(power_space,q,qdot,qddot,time):
     for t in time:
@@ -121,6 +123,26 @@ def evolutionLagrangian(power_space,q,qdot,time):
     return lagMap
 
 ## plotting methods
+
+def plotTemporalHeatmap(data,x,y,time):
+    data_slider = []
+    for index,t in enumerate(time):
+        frame = data[index]
+        frame = {'type':'heatmap','z':frame,'x':x,'y':y}
+        data_slider.append(frame)
+
+    steps = []
+    for i in range(len(data_slider)):
+        step = dict(method='restyle',
+                    args=['visible', [False] * len(data_slider)],
+                    label='{}'.format(i))
+        step['args'][1][i] = True
+        steps.append(step)
+
+    sliders = [dict(active=0, pad={"t": 1}, steps=steps)]
+    layout = dict(sliders=sliders)
+    fig = {'data':data_slider,'layout':layout}
+    py.iplot(fig)
 
 def plotTimeIndicators(indicators,time,height=300,subplot=True):
     """
