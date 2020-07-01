@@ -32,20 +32,41 @@ def parametrization(power_space):
         parameters.append(c)
     return power_space,parameters
 
+## training methods
+
 def trainPolynomial(power_space,q,qdot,qddot,lr=.00001,iterations=200):
+    time = q.index
+    c,cdot,cddot = controlPath(time)
+    power_space,parameters = parametrization(power_space)
+    optimizer = torch.optim.RMSprop(parameters,lr=lr)
+    parameters = torch.cat(parameters)
+    for iteration in range(iterations):
+        ELC = EulerLagrangian(power_space,c,cdot,cddot,time)
+        ELD = EulerLagrangian(power_space,q,qdot,qddot,time)
+        ND = regularizer(power_space,q,qdot,qddot,time)
+        loss = lossFunction(ND,ELC,ELD)
+        print('loss:',loss.data.numpy(),'\tELD:',ELD.data.numpy())
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad()
+
+    coefficients = [mono['c'].data.numpy()[0] for mono in power_space]
+    return power_space,coefficients
+
+def _trainPolynomial_(power_space,q,qdot,qddot,lr=.00001,iterations=200):
     time = q.index
     c,cdot,cddot = controlPath(time)
     power_space,parameters = parametrization(power_space)
     PD = precomputeCoefficients(power_space,q,qdot,qddot,time)
     PC = precomputeCoefficients(power_space,c,cdot,cddot,time)
-    optimizer = torch.optim.SGD(parameters,lr=lr)
+    optimizer = torch.optim.RMSprop(parameters,lr=lr)
     parameters = torch.cat(parameters)
     for iteration in range(iterations):
         ELC = timeIntegral(parameters,PC)
         ELD = timeIntegral(parameters,PD)
         ND = regularizer(power_space,q,qdot,qddot,time)
         loss = lossFunction(ND,ELC,ELD)
-        print(loss.data.numpy())
+        print('loss:',loss.data.numpy(),'\tELD:',ELD.data.numpy())
         loss.backward()
         optimizer.step()
         optimizer.zero_grad()
@@ -92,10 +113,11 @@ def timeIntegral(coefficients,P):
     return time_integral
 
 def EulerLagrangian(power_space,q,qdot,qddot,time):
+    time_integral = Variable(torch.FloatTensor([0]))
     for t in time:
         EL = Variable(torch.FloatTensor([0]))
         for power in power_space:
-            alpha,beta,gamma,c,P = power.values()
+            alpha,beta,gamma,c = power.values()
             el = (q[t]**alpha)*(qdot[t]**beta)*(t**gamma)
             el *= beta*gamma/(qdot[t]*t) + (beta-1)*alpha/q[t] + beta*(beta-1)*qddot[t]/(qdot[t]**2)
             el = c*el
