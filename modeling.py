@@ -132,6 +132,12 @@ def polynomialLagrangian(power_space,q,qdot,t):
         L += mono['c']*(q**mono['alpha'])*(qdot**mono['beta'])*(t**mono['gamma'])
     return L
 
+def pathLagrangian(power_space,space,velocity,time):
+    L = []
+    for q,qdot,t in zip(space,velocity,time):
+        L.append(polynomialLagrangian(power_space,q,qdot,t))
+    return numpy.asarray(L)
+
 def evolutionLagrangian(power_space,q,qdot,time):
     lagMap = []
     for t in time:
@@ -243,7 +249,7 @@ def truncateTrend(series,trend=+1):
 def powerFitting(series,trend):
     series = series*trend
     series = series[series > 0]
-    power = numpy.mean(numpy.log(series)/numpy.log(series.index))
+    power,bias = numpy.polyfit(numpy.log(series.index),numpy.log(series),1)
     return trend,power#,mse
 
 # fractal analysis
