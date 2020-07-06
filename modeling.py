@@ -4,6 +4,9 @@ import plotly.offline as py
 from plotly.subplots import make_subplots
 import torch
 from torch.autograd import Variable
+from sympy.physics.mechanics import *
+from scipy.integrate import odeint
+
 
 device = 'cpu'
 torch.manual_seed(42)
@@ -75,6 +78,25 @@ def _trainPolynomial_(power_space,q,qdot,qddot,lr=.00001,iterations=200):
     return power_space,coefficients
 
 # Lagrangian analysis
+
+def pathEvolution(dModel,state0,time):
+    q = dynamicsymbols('q')
+    qdot = dynamicsymbols('q',1)
+    t = dynamicsymbols('t')
+    L = 0
+    for index,mono in dModel.iterrows():
+        alpha,beta,gamma = mono['alpha'],mono['beta'],mono['gamma']
+        L += mono['c']*(q**alpha)*(qdot**beta)*(t**gamma)
+    motion = LagrangesMethod(L,[q])
+    motion.form_lagranges_equations()
+    dynamics = motion.rhs()
+
+    def evolution(state,t):
+        flow = dynamics.subs({q:state[0],qdot:state[1]})
+        return flow[0],flow[1]
+
+    state = odeint(evolution,state0,time)
+    return state
 
 def precomputeCoefficients(power_space,q,qdot,qddot,time):
     P = []
