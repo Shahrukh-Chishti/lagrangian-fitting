@@ -79,7 +79,7 @@ def _trainPolynomial_(power_space,q,qdot,qddot,lr=.00001,iterations=200):
 
 # Lagrangian analysis
 
-def pathEvolution(dModel,state0,time):
+def pathDynamics(dModel):
     q = dynamicsymbols('q')
     qdot = dynamicsymbols('q',1)
     t = dynamicsymbols('t')
@@ -90,13 +90,18 @@ def pathEvolution(dModel,state0,time):
     motion = LagrangesMethod(L,[q])
     motion.form_lagranges_equations()
     dynamics = motion.rhs()
+    variables = {'q':q,'qdot':qdot}
+    return dynamics,variables
+
+def pathEvolution(dModel,state0,time):
+    dynamics,variables = pathDynamics(dModel)
 
     def evolution(state,t):
-        flow = dynamics.subs({q:state[0],qdot:state[1]})
+        flow = dynamics.subs({variables['q']:state[0],variables['qdot']:state[1]})
         return flow[0],flow[1]
 
     state = odeint(evolution,state0,time)
-    return state
+    return state,dynamics,variables
 
 def precomputeCoefficients(power_space,q,qdot,qddot,time):
     P = []
@@ -173,6 +178,14 @@ def evolutionLagrangian(power_space,q,qdot,time):
     return lagMap
 
 ## plotting methods
+
+def plotFlowDynamics(dynamics,variables,X,Y):
+    flow = numpy.zeros((len(X),len(Y)))
+    for x_index,x in enumerate(X):
+        for y_index,y in enumerate(Y):
+            flow[y_index,x_index] = dynamics.subs({variables['q']:x,variables['qdot']:y})[1]
+
+    py.iplot([go.Heatmap(z=flow,x=X,y=Y)])
 
 def plotTemporalHeatmap(data,x,y,time):
     data_slider = []
